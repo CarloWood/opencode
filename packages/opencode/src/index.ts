@@ -69,7 +69,15 @@ let cli = yargs(hideBin(process.argv))
     type: "string",
     choices: ["DEBUG", "INFO", "WARN", "ERROR"],
   })
+  .option("exec-socket-path", {
+    describe: "path to a UNIX socket for external exec event forwarding",
+    type: "string",
+  })
   .middleware(async (opts) => {
+    if (opts.execSocketPath) {
+      process.env.OPENCODE_EXEC_SOCKET_PATH = opts.execSocketPath
+    }
+
     await Log.init({
       print: process.argv.includes("--print-logs"),
       dev: Installation.isLocal(),

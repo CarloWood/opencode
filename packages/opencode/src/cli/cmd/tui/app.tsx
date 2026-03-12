@@ -41,6 +41,7 @@ import { writeHeapSnapshot } from "v8"
 import { PromptRefProvider, usePromptRef } from "./context/prompt"
 import { TuiConfigProvider } from "./context/tui-config"
 import { TuiConfig } from "@/config/tui"
+import { SocketTap } from "@/util/sockettap"
 
 async function getTerminalBackgroundColor(): Promise<"dark" | "light"> {
   // can't set raw mode if not a TTY
@@ -676,6 +677,14 @@ function App() {
       },
     },
   ])
+
+  let tapped: string | undefined
+  createEffect(() => {
+    const sessionID = route.data.type === "session" ? route.data.sessionID : undefined
+    if (!sessionID || sessionID === tapped) return
+    tapped = sessionID
+    void SocketTap.session(sessionID)
+  })
 
   sdk.event.on(TuiEvent.CommandExecute.type, (evt) => {
     command.trigger(evt.properties.command)
