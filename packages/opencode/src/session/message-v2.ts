@@ -897,6 +897,34 @@ export namespace MessageV2 {
     return result
   }
 
+  function bunmsg(e: Error) {
+    const err = e as unknown as { code?: unknown; path?: unknown }
+    if (typeof err.path !== "string" || !err.path) return
+
+    const txt = (code: string) => {
+      const map: Record<string, string> = {
+        ConnectionRefused: "Connection refused",
+        ConnectionReset: "Connection reset",
+        ConnectionAborted: "Connection aborted",
+        TimedOut: "Timed out",
+        Timeout: "Timed out",
+        UnknownHost: "Unknown host",
+        NetworkUnreachable: "Network unreachable",
+      }
+      const hit = map[code]
+      if (hit) return hit
+      if (code.startsWith("E")) return code
+      const spaced = code.replace(/([a-z])([A-Z])/g, "$1 $2")
+      return spaced[0] ? spaced[0].toUpperCase() + spaced.slice(1).toLowerCase() : code
+    }
+
+    const code = typeof err.code === "string" && err.code ? err.code : undefined
+    const why = code ? txt(code) : undefined
+
+    if (!why && e.message !== "Unable to connect. Is the computer able to access the url?") return
+    return `Error: Unable to connect to ${err.path}${why ? ` (${why})` : ""}`
+  }
+
   export function fromError(e: unknown, ctx: { providerID: ProviderID }): NonNullable<Assistant["error"]> {
     switch (true) {
       case e instanceof DOMException && e.name === "AbortError":
@@ -956,7 +984,7 @@ export namespace MessageV2 {
           { cause: e },
         ).toObject()
       case e instanceof Error:
-        return new NamedError.Unknown({ message: e.toString() }, { cause: e }).toObject()
+        return new NamedError.Unknown({ message: bunmsg(e) ?? e.toString() }, { cause: e }).toObject()
       default:
         try {
           const parsed = ProviderError.parseStreamError(e)

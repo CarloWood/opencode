@@ -11,6 +11,9 @@ import { createOpencodeClient, type Event } from "@opencode-ai/sdk/v2"
 import type { BunWebSocketData } from "hono/bun"
 import { Flag } from "@/flag/flag"
 import { setTimeout as sleep } from "node:timers/promises"
+import { Fetch } from "@/util/fetch"
+
+Fetch.patch()
 
 await Log.init({
   print: process.argv.includes("--print-logs"),

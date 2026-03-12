@@ -15,6 +15,15 @@ export namespace ModelsDev {
   const log = Log.create({ service: "models.dev" })
   const filepath = path.join(Global.Path.cache, "models.json")
 
+  function wrap(href: string, e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (e instanceof Error && msg.startsWith("Unable to connect to ")) return e
+    const text = msg.includes("Is the computer able to access the url?") ? undefined : msg
+    const err = new Error(text ? `Unable to connect to ${href} (${text})` : `Unable to connect to ${href}`)
+    ;(err as any).cause = e
+    return err
+  }
+
   export const Model = z.object({
     id: z.string(),
     name: z.string(),
@@ -94,7 +103,12 @@ export namespace ModelsDev {
       .catch(() => undefined)
     if (snapshot) return snapshot
     if (Flag.OPENCODE_DISABLE_MODELS_FETCH) return {}
-    const json = await fetch(`${url()}/api.json`).then((x) => x.text())
+    const href = `${url()}/api.json`
+    const json = await fetch(href)
+      .then((x) => x.text())
+      .catch((e) => {
+        throw wrap(href, e)
+      })
     return JSON.parse(json)
   })
 

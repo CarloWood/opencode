@@ -93,9 +93,24 @@ export const createClient = (config: Config = {}): Client => {
       // Handle fetch exceptions (AbortError, network errors, etc.)
       let finalError = error
 
+      if (error && typeof error === "object" && !(error instanceof Error && error.name === "AbortError")) {
+        const url = request.url
+        const cause = (error as any).cause
+        const text =
+          typeof cause?.message === "string"
+            ? cause.message
+            : typeof (error as any).message === "string"
+              ? (error as any).message
+              : undefined
+        const msg = text ? `Unable to connect to ${url} (${text})` : `Unable to connect to ${url}`
+        const err = new Error(msg)
+        ;(err as any).cause = error
+        finalError = err
+      }
+
       for (const fn of interceptors.error.fns) {
         if (fn) {
-          finalError = (await fn(error, undefined as any, request, opts)) as unknown
+          finalError = (await fn(finalError as any, undefined as any, request, opts)) as unknown
         }
       }
 

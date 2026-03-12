@@ -83,7 +83,48 @@ export const createClient = (config: Config = {}): Client => {
     // fetch must be assigned here, otherwise it would throw the error:
     // TypeError: Failed to execute 'fetch' on 'Window': Illegal invocation
     const _fetch = opts.fetch!
-    let response = await _fetch(request)
+    let response: Response
+
+    try {
+      response = await _fetch(request)
+    } catch (error) {
+      let finalError = error
+
+      if (error && typeof error === "object" && !(error instanceof Error && error.name === "AbortError")) {
+        const url = request.url
+        const cause = (error as any).cause
+        const text =
+          typeof cause?.message === "string"
+            ? cause.message
+            : typeof (error as any).message === "string"
+              ? (error as any).message
+              : undefined
+        const msg = text ? `Unable to connect to ${url} (${text})` : `Unable to connect to ${url}`
+        const err = new Error(msg)
+        ;(err as any).cause = error
+        finalError = err
+      }
+
+      for (const fn of interceptors.error._fns) {
+        if (fn) {
+          finalError = (await fn(finalError as any, undefined as any, request, opts)) as unknown
+        }
+      }
+
+      finalError = finalError || ({} as unknown)
+
+      if (opts.throwOnError) {
+        throw finalError
+      }
+
+      return opts.responseStyle === "data"
+        ? undefined
+        : {
+            error: finalError,
+            request,
+            response: undefined as any,
+          }
+    }
 
     for (const fn of interceptors.response._fns) {
       if (fn) {
