@@ -1,6 +1,9 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import os from "os"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
+// <CW04-model-request-log>
+import { mkdir } from "node:fs/promises"
+// </CW04-model-request-log>
 import fuzzysort from "fuzzysort"
 import { Config } from "@/config/config"
 import { mapValues, mergeDeep, omit, pickBy, sortBy } from "remeda"
@@ -33,6 +36,68 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderError } from "./error"
 
 const OPENAI_HEADER_TIMEOUT_DEFAULT = 10_000
+
+// <CW04-model-request-log>
+const file = path.join(
+  process.env.XDG_STATE_HOME ?? path.join(os.homedir(), ".local", "state"),
+  "opencode",
+  "model-request.json",
+)
+
+function body(value: BodyInit | null | undefined) {
+  if (value === null || value === undefined) return value
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value)
+    } catch {
+      return value
+    }
+  }
+  if (value instanceof URLSearchParams) return value.toString()
+  if (value instanceof FormData) {
+    return Array.from(value.entries()).map(([key, item]) => {
+      const val = item as string | { name?: string; type?: string; size?: number }
+      if (typeof val === "string") return [key, val]
+      if (val && typeof val === "object") {
+        return [key, { name: val.name, type: val.type, size: val.size }]
+      }
+      return [key, String(val)]
+    })
+  }
+  if (ArrayBuffer.isView(value)) {
+    return {
+      type: value.constructor.name,
+      data: Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString("base64"),
+    }
+  }
+  if (value instanceof ArrayBuffer) {
+    return {
+      type: "ArrayBuffer",
+      data: Buffer.from(value).toString("base64"),
+    }
+  }
+  if (value instanceof Blob) {
+    return {
+      type: "Blob",
+      mime: value.type,
+      size: value.size,
+    }
+  }
+  return String(value)
+}
+
+function head(value: HeadersInit | undefined) {
+  if (!value) return {}
+  if (value instanceof Headers) return Object.fromEntries(value.entries())
+  if (Array.isArray(value)) return Object.fromEntries(value)
+  return value
+}
+
+async function dump(value: unknown) {
+  await mkdir(path.dirname(file), { recursive: true })
+  await Bun.write(file, JSON.stringify(value, null, 2) + "\n")
+}
+// </CW04-model-request-log>
 
 function wrapSSE(res: Response, ms: number, ctl: AbortController) {
   if (typeof ms !== "number" || ms <= 0) return res
@@ -1739,6 +1804,20 @@ const layer = Layer.effect(
 
           const combined = signals.length === 0 ? null : signals.length === 1 ? signals[0] : AbortSignal.any(signals)
           if (combined) opts.signal = combined
+
+          // <CW04-model-request-log>
+          await dump({
+            time: new Date().toISOString(),
+            providerID: model.providerID,
+            modelID: model.id,
+            request: {
+              url: input instanceof Request ? input.url : input.toString(),
+              method: opts.method ?? (input instanceof Request ? input.method : "GET"),
+              headers: head(opts.headers ?? (input instanceof Request ? input.headers : undefined)),
+              body: body(opts.body ?? (input instanceof Request ? input.body : undefined)),
+            },
+          })
+          // </CW04-model-request-log>
 
           const res = await fetchFn(input, {
             ...opts,
