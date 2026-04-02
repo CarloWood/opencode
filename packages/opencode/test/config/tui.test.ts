@@ -413,6 +413,26 @@ it.instance("top-level keys in tui.json take precedence over nested tui key", ()
   ),
 )
 
+// <CW03-toggle-mouse-handling>
+it.instance("loads mouse from tui.json and defaults to enabled", () =>
+  withCleanState(
+    Effect.gen(function* () {
+      const fs = yield* FSUtil.Service
+      const test = yield* TestInstance
+
+      // Default is enabled when mouse is not specified.
+      const defaultConfig = yield* getTuiConfig(test.directory)
+      expect(defaultConfig.mouse).toBe(true)
+
+      yield* fs.writeJson(path.join(test.directory, "tui.json"), { mouse: false })
+
+      const config = yield* getTuiConfig(test.directory)
+      expect(config.mouse).toBe(false)
+    }),
+  ),
+)
+// </CW03-toggle-mouse-handling>
+
 it.instance("project config takes precedence over OPENCODE_TUI_CONFIG (matches OPENCODE_CONFIG)", () =>
   withCleanState(
     Effect.gen(function* () {

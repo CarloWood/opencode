@@ -137,6 +137,9 @@ const appBindingCommands = [
   "app.toggle.diffwrap",
   "app.toggle.paste_summary",
   "app.toggle.session_directory_filter",
+  // <CW03-toggle-mouse-handling>
+  "app.toggle.mouse",
+  // </CW03-toggle-mouse-handling>
 ] as const
 
 export type TuiInput = {
@@ -448,6 +451,16 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
   const [pasteSummaryEnabled, setPasteSummaryEnabled] = createSignal(
     kv.get("paste_summary_enabled", !sync.data.config.experimental?.disable_paste_summary),
   )
+
+  // <CW03-toggle-mouse-handling>
+  // Runtime-toggleable mouse capture. The renderer is created with mouse capture driven by
+  // `Flag.OPENCODE_DISABLE_MOUSE` and `tuiConfig.mouse`; this signal mirrors that initial value and
+  // keeps `renderer.useMouse` in sync when the user toggles it via the command palette or keybind.
+  const [mouse, setMouse] = createSignal(renderer.useMouse)
+  createEffect(() => {
+    renderer.useMouse = mouse()
+  })
+  // </CW03-toggle-mouse-handling>
 
   // Update terminal window title based on current route and session
   createEffect(() => {
@@ -943,6 +956,17 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
           dialog.clear()
         },
       },
+      // <CW03-toggle-mouse-handling>
+      {
+        name: "app.toggle.mouse",
+        title: mouse() ? "Disable mouse handling" : "Enable mouse handling",
+        category: "System",
+        run: () => {
+          setMouse((prev) => !prev)
+          dialog.clear()
+        },
+      },
+      // </CW03-toggle-mouse-handling>
       {
         name: "permission.mode",
         title:
