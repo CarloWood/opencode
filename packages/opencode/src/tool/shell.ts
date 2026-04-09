@@ -416,7 +416,9 @@ export const ShellTool = Tool.define(
     const shellEnv = Effect.fn("ShellTool.shellEnv")(function* (ctx: Tool.Context, cwd: string) {
       const extra = yield* plugin.trigger(
         "shell.env",
-        { cwd, sessionID: ctx.sessionID, callID: ctx.callID },
+        // <CW06-pass-agent-to-shell.env> Add `agent: ctx.agent` as fourth argument.
+        { cwd, sessionID: ctx.sessionID, callID: ctx.callID, agent: ctx.agent },
+        // </CW06-pass-agent-to-shell.env>
         { env: {} },
       )
       return {

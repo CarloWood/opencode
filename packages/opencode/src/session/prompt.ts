@@ -553,7 +553,9 @@ const layer = Layer.effect(
             Effect.gen(function* () {
               const shellEnv = yield* plugin.trigger(
                 "shell.env",
-                { cwd, sessionID: input.sessionID, callID: part.callID },
+                // <CW06-pass-agent-to-shell.env> Add `agent: input.agent` as fourth argument.
+                { cwd, sessionID: input.sessionID, callID: part.callID, agent: input.agent },
+                // </CW06-pass-agent-to-shell.env>
                 { env: {} },
               )
               const cmd = ChildProcess.make(sh, args, {

@@ -268,7 +268,9 @@ export interface Hooks {
     output: { args: any },
   ) => Promise<void>
   "shell.env"?: (
-    input: { cwd: string; sessionID?: string; callID?: string },
+    // <CW06-pass-agent-to-shell.env> Add `agent?: sting` as fourth argument.
+    input: { cwd: string; sessionID?: string; callID?: string; agent?: string },
+    // </CW06-pass-agent-to-shell.env>
     output: { env: Record<string, string> },
   ) => Promise<void>
   "tool.execute.after"?: (
