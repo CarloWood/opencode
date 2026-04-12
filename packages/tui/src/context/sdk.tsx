@@ -18,13 +18,19 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
     events?: EventSource
   }) => {
     const abort = new AbortController()
+    // <CW07-directory-as-function-of-agent>
+    const initialDirectory = props.directory
+    let directory = props.directory
+    // </CW07-directory-as-function-of-agent>
     let sse: AbortController | undefined
 
     function createSDK() {
       return createOpencodeClient({
         baseUrl: props.url,
         signal: abort.signal,
-        directory: props.directory,
+        // <CW07-directory-as-function-of-agent> Let the SDK client follow the active agent directory.
+        directory,
+        // </CW07-directory-as-function-of-agent>
         fetch: props.fetch,
         headers: props.headers,
       })
@@ -142,9 +148,24 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
       get client() {
         return sdk
       },
-      directory: props.directory,
+      // <CW07-directory-as-function-of-agent> Expose the initial and current directories and allow retargeting requests.
+      get directory() {
+        return directory
+      },
+      get initialDirectory() {
+        return initialDirectory
+      },
+      // </CW07-directory-as-function-of-agent>
       event: emitter,
       fetch: props.fetch ?? fetch,
+      // <CW07-directory-as-function-of-agent>
+      setDirectory(next?: string) {
+        if (directory === next) return
+        directory = next
+        sdk = createSDK()
+        if (!props.events) startSSE()
+      },
+      // </CW07-directory-as-function-of-agent>
       url: props.url,
     }
   },

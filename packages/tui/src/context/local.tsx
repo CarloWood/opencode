@@ -5,6 +5,11 @@ import { useSync } from "./sync"
 import { useEvent } from "./event"
 import path from "path"
 import { useTuiPaths } from "./runtime"
+// <CW07-directory-as-function-of-agent>
+import { errorMessage } from "../util/error"
+import { realpathSync } from "node:fs"
+import { useProject } from "./project"
+// </CW07-directory-as-function-of-agent>
 import { useArgs } from "./args"
 import { useSDK } from "./sdk"
 import { RGBA } from "@opentui/core"
@@ -48,6 +53,95 @@ export function recentModels(
     .map((item) => ({ providerID: item.providerID, modelID: item.modelID }))
 }
 
+// <CW07-directory-as-function-of-agent>
+// Local replacements for @opencode-ai/opencode's Process/Filesystem utilities,
+// which the tui package cannot import (circular dependency on @opencode-ai/opencode).
+// resolvePath canonicalises a path via realpath, falling back to the resolved path when
+// the target does not yet exist (matching Filesystem.resolve semantics).
+function resolvePath(p: string): string {
+  const resolved = path.resolve(p)
+  try {
+    return realpathSync(resolved)
+  } catch {
+    return resolved
+  }
+}
+
+// Run a command with an optional cleared environment (env: null → empty env).
+// Throws RunFailedError when the process exits with a non-zero code, mirroring Process.run.
+class RunFailedError extends Error {
+  readonly cmd: string[]
+  readonly code: number
+  readonly stdout: string
+  readonly stderr: string
+  constructor(cmd: string[], code: number, stdout: string, stderr: string) {
+    const text = stderr.trim()
+    super(
+      text
+        ? `Command failed with code ${code}: ${cmd.join(" ")}\n${text}`
+        : `Command failed with code ${code}: ${cmd.join(" ")}`,
+    )
+    this.name = "ProcessRunFailedError"
+    this.cmd = [...cmd]
+    this.code = code
+    this.stdout = stdout
+    this.stderr = stderr
+  }
+}
+
+async function runProcess(cmd: string[], opts: { env?: NodeJS.ProcessEnv | null }) {
+  const proc = Bun.spawn({ cmd, stdout: "pipe", stderr: "pipe", env: opts.env === null ? {} : opts.env })
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ])
+  if (code !== 0) throw new RunFailedError(cmd, code, stdout, stderr)
+  return { code, stdout, stderr }
+}
+
+function envKey(name: string) {
+  return name.toUpperCase().replace(/[^A-Z0-9]+/g, "_")
+}
+
+function directoryForAgent(name: string, fallback: string) {
+  const specific = process.env[`OPENCODE_AGENT_DIRECTORY_${envKey(name)}`]
+  if (specific) return resolvePath(specific)
+  if ((name === "analyst" || name === "planner") && process.env.PLANROOT) {
+    const dir = path.join(process.env.PLANROOT, name)
+    return resolvePath(dir)
+  }
+  if (name === "coder" && process.env.REPOROOT) {
+    return resolvePath(process.env.REPOROOT)
+  }
+  return fallback
+}
+
+function remountCommandsForAgent(name: string) {
+  const repobase = process.env.REPOBASE
+  if (!repobase) throw new Error("REPOBASE is required to remount agent worktrees")
+  const repo = `/${repobase}`
+  const repoAAP = `/${repobase}-AAP`
+
+  if (name === "coder") {
+    return [
+        ["remountctl", "ro", "ai-cli", repoAAP],
+        ["remountctl", "rw", "ai-cli", repo],
+      ]
+  }
+  else if (name === "planner") {
+    return [
+        ["remountctl", "ro", "ai-cli", repo],
+        ["remountctl", "rw", "ai-cli", repoAAP],
+      ]
+  }
+  return [
+      ["remountctl", "ro", "ai-cli", repo],
+      ["remountctl", "ro", "ai-cli", repoAAP],
+    ]
+}
+// </CW07-directory-as-function-of-agent>
+
 export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
   name: "Local",
   init: () => {
@@ -60,6 +154,9 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const args = useArgs()
     const event = useEvent()
     const permission = usePermission()
+    // <CW07-directory-as-function-of-agent>
+    const project = useProject()
+    // </CW07-directory-as-function-of-agent>
 
     function isModelValid(model: { providerID: string; modelID: string }) {
       const provider = sync.data.provider.find((item) => item.id === model.providerID)
@@ -133,6 +230,53 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     }
 
     const agent = createAgent()
+
+    // <CW07-directory-as-function-of-agent>
+    let remountQueue = Promise.resolve()
+    function queueRemount(name: string) {
+      remountQueue = remountQueue
+        .catch(() => undefined)
+        .then(async () => {
+          for (const command of remountCommandsForAgent(name)) {
+            // remountctl refused to run if certain environment variables are set.
+            // We just clear the whole environment because it doesn't need any anyway.
+            await runProcess(command, { env: null })
+          }
+        })
+        .catch((error) => {
+          const detail = error instanceof RunFailedError ? error.stderr.trim() : errorMessage(error)
+          toast.show({
+            variant: "error",
+            message: `Failed to remount worktrees for ${name}: ${(detail || errorMessage(error)).split("\n")[0]}`,
+            duration: 10000,
+          })
+        })
+    }
+
+    let syncedDirectory: string | undefined
+    createEffect<string | undefined>((previous) => {
+      const current = agent.current()
+      if (!current) return previous
+
+      if (previous && previous !== current.name) {
+        queueRemount(current.name)
+      }
+
+      const fallback = sdk.initialDirectory ?? sdk.directory ?? process.cwd()
+      if (!fallback) return current.name
+
+      const next = directoryForAgent(current.name, fallback)
+      if (next === syncedDirectory) return current.name
+
+      syncedDirectory = next
+      sdk.setDirectory(next)
+      void project.sync()
+      void sdk.client.vcs.get().then((x) => {
+        sync.set("vcs", x.data)
+      })
+      return current.name
+    })
+    // </CW07-directory-as-function-of-agent>
 
     function createModel() {
       const [modelStore, setModelStore] = createStore<{
