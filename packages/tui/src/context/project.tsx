@@ -10,6 +10,7 @@ export const { use: useProject, provider: ProjectProvider } = createSimpleContex
   name: "Project",
   init: () => {
     const sdk = useSDK()
+    let sync_seqnr = 0
 
     const defaultPath = {
       home: "",
@@ -35,15 +36,19 @@ export const { use: useProject, provider: ProjectProvider } = createSimpleContex
       },
     })
 
-    async function sync() {
+    async function sync(seqnr = ++sync_seqnr) {
       const workspace = store.workspace.current
       const [instancePath, project] = await Promise.all([
         sdk.client.path.get({ workspace }),
         sdk.client.project.current({ workspace }),
       ])
+
+      if (seqnr < sync_seqnr) return
+
       const directories = project.data?.id
         ? await sdk.client.project.directories({ projectID: project.data.id, workspace })
         : undefined
+
       batch(() => {
         setStore("instance", "path", reconcile(instancePath.data || defaultPath))
         setStore("project", "id", project.data?.id)
