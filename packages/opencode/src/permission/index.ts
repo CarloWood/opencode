@@ -4,8 +4,10 @@ import { InstanceState } from "@/effect/instance-state"
 import { Wildcard } from "@opencode-ai/core/util/wildcard"
 import { Deferred, Effect, Layer, Context } from "effect"
 import os from "os"
+import path from "path"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { EventV2Bridge } from "@/event-v2-bridge"
+import { evaluatePathPermission } from "./evaluate-path-permission"
 
 export const Event = PermissionV1.Event
 
@@ -67,11 +69,18 @@ const layer = Layer.effect(
     const ask = Effect.fn("Permission.ask")(function* (input: PermissionV1.AskInput) {
       const { approved, pending } = yield* InstanceState.get(state)
       const { ruleset, ...request } = input
+      const GLOB_TOOLS = ["read", "edit", "external_directory"]
+      const isGlobTool = GLOB_TOOLS.includes(request.permission)
       let needsAsk = false
 
       for (const pattern of request.patterns) {
-        const rule = evaluate(request.permission, pattern, ruleset, approved)
-        yield* Effect.logInfo("evaluated", { permission: request.permission, pattern, action: rule })
+        const ctx = yield* InstanceState.context
+        const absolutePath = path.isAbsolute(pattern) ? path.normalize(pattern) : path.resolve(ctx.worktree, pattern)
+        const relativePath = path.relative(ctx.worktree, absolutePath).replaceAll("\\", "/")
+        const rule = isGlobTool
+          ? evaluatePathPermission(request.permission, { absolutePath, relativePath }, ruleset, approved)
+          : evaluate(request.permission, pattern, ruleset, approved)
+        yield* Effect.logInfo("evaluated", { absolutePath, relativePath, isGlobTool, permission: request.permission, pattern, action: rule })
         if (rule.action === "deny") {
           return yield* new PermissionV1.DeniedError({
             ruleset: ruleset.filter((rule) => Wildcard.match(request.permission, rule.permission)),
